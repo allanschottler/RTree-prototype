@@ -7,6 +7,7 @@
 #include <map>
 #include <random>
 #include <assert.h>
+#include <glm/glm.hpp>
 
 namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
@@ -133,22 +134,56 @@ value queryTree(ray& r, RTree& tree)
 	return {};
 }
 
-std::vector<ray> makeRays(int nRays)
+point3d glm2gi(const glm::vec3& v)
+{ return point3d(v.x, v.y, v.z); }
+
+glm::vec3 gi2glm(const point3d& v)
+{ return glm::vec3(v.get<0>(), v.get<1>(), v.get<2>()); }
+
+std::vector<ray> makeRays(int nRays, box aabb)
 {
-	return {};
+	//Float aleatório entre 0 e 1
+	auto randomFloat = []()
+	{ return static_cast <float> (rand()) / static_cast <float> (RAND_MAX); };
+
+	//Vec3 com coordenadas float aleatórias entre 0 e 1
+	auto randomVec = [randomFloat]()
+	{ return glm::vec3(randomFloat(), randomFloat(), randomFloat()); };
+	
+	auto min = gi2glm(aabb.min_corner());
+	auto max = gi2glm(aabb.max_corner());
+	auto delta = max - min;
+	auto deltaL = glm::length(delta); //tamanho da diagonal
+
+	std::vector<ray> rays;
+
+	while (--nRays >= 0)
+	{
+		auto randomOrig = randomVec() * delta + min; //ponto aleatório dentro da box
+		auto randomDir =  glm::normalize(randomVec() * glm::vec3(2) - glm::vec3(1)); //direção aleatória normalizada
+		auto a = randomOrig + randomDir * deltaL; //ponto a do segmento do raio
+		auto b = randomOrig - randomDir * deltaL; //ponto b do segmento do raio
+
+		rays.push_back(std::make_pair(glm2gi(a), glm2gi(b)));
+	}
+
+	return rays;
 }
 
 int main()
 {
 	//1. Criar conjunto de segmentos equivalente à trajetória de um poço.
-	trajectory t = buildTraj<tag::Directional>();
+	//trajectory t = buildTraj<tag::Directional>();
 	
 	//2. Construção das caixas envolventes de cada segmento.
 	//3. Construção da r-tree.
-	RTree rtree = makeTree(t);
+	//RTree rtree = makeTree(t);
     
 	//4. Criar função para geração de raios arbitrários.
-	auto rays = makeRays(1000);
+	
+	//Box de teste. TODO: Usar rtree.bounds() no lugar
+	auto testBox = box(point3d(0, 0, 0), point3d(100, 100, 100)); 
+	auto rays = makeRays(1000, testBox);
 	
 	int totalBrute = 0, totalTree = 0;
 	int timeBrute = 0, timeTree = 0;
