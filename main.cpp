@@ -3,6 +3,8 @@
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/geometries/box.hpp>
+#include <boost/geometry/geometries/linestring.hpp>
+
 #include <boost/geometry/index/rtree.hpp>
 
 #include <glm/glm.hpp>
@@ -17,7 +19,6 @@ namespace bgi = boost::geometry::index;
 typedef bg::model::point<float, 3, bg::cs::cartesian> point3d;
 typedef bg::model::box<point3d> box;
 
-//typedef std::map<float, point3d> trajectory;
 typedef std::map<float, point3d> trajectory;
 typedef std::pair<box, trajectory::iterator> value;
 typedef bgi::rtree<value, bgi::rstar<16>> RTree;
@@ -52,8 +53,8 @@ trajectory buildTrajPoints(tag::Vertical)
 
 	for (unsigned i{}; i <= num_samples; ++i)
 	{
-		float z = 0.004f * i;
-		out.emplace(z, point3d{x, y, z});
+		float z = static_cast<float>(i);
+		out.emplace(z, point3d{ x, y, z });
 	}
 
 	return out;
@@ -65,16 +66,16 @@ trajectory buildTrajPoints(tag::Diagonal)
 
 	auto [x1, y1] = random_point2d(min, max);
 	auto [x2, y2] = random_point2d(min, max);
-	if (x1 < x2) std::swap(x1, x2);
-	if (y1 < y2) std::swap(y1, y2);
+	if (x1 > x2) std::swap(x1, x2);
+	if (y1 > y2) std::swap(y1, y2);
 
-	float inc = 1.f / num_samples;
+	float inc = 1.f / static_cast<float>(num_samples);
 	for (unsigned i{}; i <= num_samples; ++i)
 	{
 		float offset = i * inc;
 		float x = x1 * (1 - offset) + x2 * offset;
 		float y = y1 * (1 - offset) + y2 * offset;
-		float z = 0.004f * i;
+		float z = (float)i;
 		out.emplace(z, point3d{ x, y, z });
 	}
 
@@ -92,7 +93,7 @@ trajectory buildTrajPoints(tag::Directional)
 		float offset = std::log(i + 1);
 		float x = hx + rx * offset;
 		float y = hy + ry * offset;
-		float z = 0.004f * i;
+		float z = static_cast<float>(i);
 		out.emplace(z, point3d{ x, y, z });
 	}
 
@@ -137,6 +138,15 @@ RTree makeTree(trajectory& t)
 
 value queryBrute(ray& r, trajectory& t)
 {
+	boost::geometry::model::linestring<point3d> line{ r.first, r.second };
+	for (auto it = t.begin(); it != std::prev(t.end(), 2); ++it)
+	{
+		auto bb = makeBox(it->second, std::next(it)->second);
+
+		if (bg::intersects(line, bb))
+			return { bb, it };
+	}
+
 	return {};
 }
 
@@ -182,10 +192,10 @@ std::vector<ray> makeRays(int nRays, box aabb)
 
 int main()
 {
+
 	//1. Criar conjunto de segmentos equivalente à trajetória de um poço.
 	trajectory t = benchmark("Criando trajetória procedural", 
 							 [](){ return buildTraj<tag::Directional>(); });
-	
 	//2. Construção da r-tree.
 	RTree rtree = benchmark("Construindo RTree", 
 							[&t](){ return makeTree(t); });
