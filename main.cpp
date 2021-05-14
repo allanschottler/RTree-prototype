@@ -14,6 +14,8 @@
 #include <map>
 #include <random>
 
+#define PACKING_TREE
+
 namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
 
@@ -22,12 +24,27 @@ typedef bg::model::box<point3d> box;
 
 typedef std::map<float, point3d> trajectory;
 typedef std::pair<box, trajectory::iterator> value;
+
+#ifdef PACKING_TREE
+typedef std::vector<value> trajectory_v;
+#endif
+
+#ifdef PACKING_TREE
 typedef bgi::rtree<value, bgi::rstar<16>> RTree;
+#else
+typedef bgi::rtree<value, bgi::quadratic<16>> RTree;
+#endif
 
 typedef std::pair<point3d, point3d> ray;
 
-constexpr unsigned num_samples = 1000;//3500000;
-constexpr unsigned num_rays = 1000;//3500000;
+#ifdef _DEBUG
+	constexpr unsigned num_samples = 1000;
+	constexpr unsigned num_rays = 100;
+#else
+	constexpr unsigned num_samples = 3500000;
+	constexpr unsigned num_rays = 100000;
+#endif
+
 constexpr float min = 0.f;
 constexpr float max = 1e6f;
 
@@ -122,18 +139,30 @@ box makeBox(point3d p1, point3d p2)
 	return box(pmin, pmax);
 }
 
-RTree makeTree(trajectory& t)
-{
-	RTree rtree;
-	
+RTree makeTreePacking(trajectory& t, trajectory_v& tv)
+{	
 	for (auto it = t.begin(); it != std::prev(t.end()); ++it)
 	{
 		auto& p1 = it->second;
 		auto& p2 = std::next(it)->second;
-		value v = std::make_pair(makeBox(p1,p2), it);
-		rtree.insert(v);
+		tv.push_back(std::make_pair(makeBox(p1,p2), it));
 	}
+	
+	RTree rtree(tv);
+	return rtree;
+}
 
+RTree makeTree(trajectory& t)
+{		
+	RTree rtree;
+
+	for (auto it = t.begin(); it != std::prev(t.end()); ++it)
+	{
+		auto& p1 = it->second;
+		auto& p2 = std::next(it)->second;
+		rtree.insert(std::make_pair(makeBox(p1,p2), it));
+	}
+	
 	return rtree;
 }
 
@@ -156,8 +185,7 @@ boost::optional<value> queryTree(ray& r, RTree& tree)
 	std::vector<value> result = {};
 	boost::geometry::model::segment<point3d> seg{ r.first, r.second };
 	tree.query(bgi::intersects(seg), std::back_inserter(result));
-
-	return boost::make_optional(result.empty(), result[0]);
+	return result.empty() ? boost::none : boost::make_optional(result[0]);
 }
 
 point3d glm2gi(const glm::vec3& v)
@@ -197,29 +225,47 @@ std::vector<ray> makeRays(int nRays, box aabb)
 
 int main()
 {
-
 	//1. Criar conjunto de segmentos equivalente à trajetória de um poço.
-	trajectory t = benchmark("Criando trajetória procedural", 
+	trajectory t = benchmark("Criando trajetória procedural (" + std::to_string(num_samples) + " amostras)", 
 							 [](){ return buildTraj<tag::Directional>(); });
+
 	//2. Construção da r-tree.
-	RTree rtree = benchmark("Construindo RTree", 
+#ifdef PACKING_TREE
+	trajectory_v tv;
+	RTree rtree = benchmark("Construindo RTree Packing", 
+							[&t, &tv](){ return makeTreePacking(t, tv); });
+#else
+	RTree rtree = benchmark("Construindo R*Tree", 
 							[&t](){ return makeTree(t); });
+#endif
     
 	//3. Criar função para geração de raios arbitrários.
 	auto rays = benchmark("Criando raios aleatórios (" + std::to_string(num_rays) + ")", 
-						  [&rtree](){ return makeRays(num_rays, rtree.bounds()); });
+						  [&rtree](){ return makeRays(num_rays, rtree.bounds()); });	
 
-	//4. Testar queries usando força bruta.
-	benchmark("Testando query força bruta", [&t, &rays]() {
-		for(auto& ray : rays)
-			queryBrute(ray, t);
+	using results_map = std::map<ray*, glm::vec3>;
+	results_map bruteResults, treeResults;
+
+	//4. Testar queries usando Rtree.
+	benchmark("Testando query em RTree", [&rtree, &rays, &treeResults]() {
+		for(auto& r : rays)
+			if(auto v = queryTree(r, rtree))
+				treeResults[&r] = gi2glm(v->second->second);
 	});
 
-	//5. Testar queries usando Rtree.
-	benchmark("Testando query em RTree", [&rtree, &rays]() {
-		for(auto& ray : rays)
-			queryTree(ray, rtree);
+	//5. Testar queries usando força bruta.
+	benchmark("Testando query força bruta", [&t, &rays, &bruteResults]() {
+		for(auto& r : rays)
+			if(auto v = queryBrute(r, t))
+				bruteResults[&r] = gi2glm(v->second->second);
 	});
+
+	assert(bruteResults.size() == treeResults.size());
+	for (auto& brutePair : bruteResults)
+	{
+		assert(treeResults.count(brutePair.first));
+		assert(brutePair.second == treeResults.at(brutePair.first));
+	}
 
 	return 0;
 }
