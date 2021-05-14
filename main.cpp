@@ -3,9 +3,9 @@
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/geometries/box.hpp>
-#include <boost/geometry/geometries/linestring.hpp>
 
 #include <boost/geometry/index/rtree.hpp>
+#include <boost/optional.hpp>
 
 #include <glm/glm.hpp>
 
@@ -40,7 +40,7 @@ std::pair<float, float> random_point2d(float min, float max)
 {
 	std::random_device rd;
 	std::mt19937 mt = std::mt19937(rd());
-	std::uniform_real_distribution d(min, max);
+	std::uniform_real_distribution<> d(min, max);
 
 	return { d(mt), d(mt) };
 }
@@ -136,23 +136,27 @@ RTree makeTree(trajectory& t)
 	return rtree;
 }
 
-value queryBrute(ray& r, trajectory& t)
+boost::optional<value> queryBrute(ray& r, trajectory& t)
 {
-	boost::geometry::model::linestring<point3d> line{ r.first, r.second };
-	for (auto it = t.begin(); it != std::prev(t.end(), 2); ++it)
+	boost::geometry::model::segment<point3d> seg{ r.first, r.second };
+	for (auto it = t.begin(); it != std::prev(t.end()); ++it)
 	{
 		auto bb = makeBox(it->second, std::next(it)->second);
 
-		if (bg::intersects(line, bb))
+		if (bg::intersects(seg, bb))
 			return { bb, it };
 	}
 
-	return {};
+	return boost::none;
 }
 
-value queryTree(ray& r, RTree& tree)
+boost::optional<value> queryTree(ray& r, RTree& tree)
 {
-	return {};
+	std::vector<value> result = {};
+	boost::geometry::model::segment<point3d> seg{ r.first, r.second };
+	tree.query(bg::intersects(seg), std::back_inserter(result));
+
+	return boost::make_optional(result.empty(), result[0]);
 }
 
 point3d glm2gi(const glm::vec3& v)
