@@ -15,13 +15,15 @@ namespace bgi = boost::geometry::index;
 typedef bg::model::point<float, 3, bg::cs::cartesian> point3d;
 typedef bg::model::box<point3d> box;
 
+//typedef std::map<float, point3d> trajectory;
 typedef std::map<float, point3d> trajectory;
 typedef std::pair<box, trajectory::iterator> value;
 typedef bgi::rtree<value, bgi::rstar<16>> RTree;
 
 typedef std::pair<point3d, point3d> ray;
 
-constexpr unsigned num_samples = 3500000;
+constexpr unsigned num_samples = 1000;//3500000;
+constexpr unsigned num_rays = 1000;//3500000;
 constexpr float min = 0.f;
 constexpr float max = 1e6f;
 
@@ -49,7 +51,7 @@ trajectory buildTrajPoints(tag::Vertical)
 	for (unsigned i{}; i <= num_samples; ++i)
 	{
 		float z = 0.004f * i;
-		out.emplace(z, point3d{ x, y, z });
+		out.emplace(z, point3d{x, y, z});
 	}
 
 	return out;
@@ -89,7 +91,6 @@ trajectory buildTrajPoints(tag::Directional)
 		float x = hx + rx * offset;
 		float y = hy + ry * offset;
 		float z = 0.004f * i;
-
 		out.emplace(z, point3d{ x, y, z });
 	}
 
@@ -120,7 +121,15 @@ box makeBox(point3d p1, point3d p2)
 RTree makeTree(trajectory& t)
 {
 	RTree rtree;
-	//TODO
+	
+	for (auto it = t.begin(); it != std::prev(t.end()); ++it)
+	{
+		auto& p1 = it->second;
+		auto& p2 = std::next(it)->second;
+		value v = std::make_pair(makeBox(p1,p2), it);
+		rtree.insert(v);
+	}
+
 	return rtree;
 }
 
@@ -163,7 +172,6 @@ std::vector<ray> makeRays(int nRays, box aabb)
 		auto randomDir =  glm::normalize(randomVec() * glm::vec3(2) - glm::vec3(1)); //direção aleatória normalizada
 		auto a = randomOrig + randomDir * deltaL; //ponto a do segmento do raio
 		auto b = randomOrig - randomDir * deltaL; //ponto b do segmento do raio
-
 		rays.push_back(std::make_pair(glm2gi(a), glm2gi(b)));
 	}
 
@@ -173,42 +181,50 @@ std::vector<ray> makeRays(int nRays, box aabb)
 int main()
 {
 	//1. Criar conjunto de segmentos equivalente à trajetória de um poço.
-	//trajectory t = buildTraj<tag::Directional>();
+	std::cout << "Criando trajetória procedural...\n";
+	trajectory t = buildTraj<tag::Directional>();
+	//trajectory t = buildTrajPoints(tag::Vertical{});
 	
 	//2. Construção das caixas envolventes de cada segmento.
 	//3. Construção da r-tree.
-	//RTree rtree = makeTree(t);
+	std::cout << "Construindo RTree...\n";
+	RTree rtree = makeTree(t);
     
 	//4. Criar função para geração de raios arbitrários.
 	
 	//Box de teste. TODO: Usar rtree.bounds() no lugar
-	auto testBox = box(point3d(0, 0, 0), point3d(100, 100, 100)); 
-	auto rays = makeRays(1000, testBox);
+	//auto testBox = box(point3d(0, 0, 0), point3d(100, 100, 100)); 
+	std::cout << "Criando raios aleatórios (" << num_rays << ")...\n";
+	auto rays = makeRays(num_rays, rtree.bounds());
 	
 	int totalBrute = 0, totalTree = 0;
 	int timeBrute = 0, timeTree = 0;
 
-	/*
-	//5. Testar queries usando r-tree e força bruta.
+	//5. Testar queries usando força bruta.
+	std::cout << "Testando query força bruta...\n";
 	for(auto& ray : rays)
 	{
 		//ClockStart
 		auto v1 = queryBrute(ray, t);
-		//totalBrute = ClockEnd
-	 
-		//ClockStart
-		auto v2 = queryTree(ray, rtree);
-		//totalTree = ClockEnd
-
-		assert(v1==v2);
-		
+		//totalBrute = ClockEnd		
 		totalBrute += timeBrute;
-		totalTree += timeTree;
 	}
 
 	totalBrute /= rays.size();
-	timeTree /= rays.size();
-	*/
+	std::cout << "Tempo decorrido força bruta: " << totalBrute << "\n";
+
+	//6. Testar queries usando Rtree.
+	std::cout << "Testando query força em RTree...\n";
+	for(auto& ray : rays)
+	{
+		//ClockStart
+		auto v2 = queryTree(ray, rtree);
+		//totalTree = ClockEnd
+		totalTree += timeTree;
+	}
+
+	totalTree /= rays.size();
+	std::cout << "Tempo decorrido RTree: " << totalTree << "\n";
 
 	return 0;
 }
