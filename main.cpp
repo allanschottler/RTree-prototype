@@ -1,13 +1,15 @@
+#include "benchmark.h"
+
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/geometries/box.hpp>
-
 #include <boost/geometry/index/rtree.hpp>
+
+#include <glm/glm.hpp>
+
 #include <iostream>
 #include <map>
 #include <random>
-#include <assert.h>
-#include <glm/glm.hpp>
 
 namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
@@ -181,50 +183,28 @@ std::vector<ray> makeRays(int nRays, box aabb)
 int main()
 {
 	//1. Criar conjunto de segmentos equivalente à trajetória de um poço.
-	std::cout << "Criando trajetória procedural...\n";
-	trajectory t = buildTraj<tag::Directional>();
-	//trajectory t = buildTrajPoints(tag::Vertical{});
+	trajectory t = benchmark("Criando trajetória procedural", 
+							 [](){ return buildTraj<tag::Directional>(); });
 	
-	//2. Construção das caixas envolventes de cada segmento.
-	//3. Construção da r-tree.
-	std::cout << "Construindo RTree...\n";
-	RTree rtree = makeTree(t);
+	//2. Construção da r-tree.
+	RTree rtree = benchmark("Construindo RTree", 
+							[&t](){ return makeTree(t); });
     
-	//4. Criar função para geração de raios arbitrários.
-	
-	//Box de teste. TODO: Usar rtree.bounds() no lugar
-	//auto testBox = box(point3d(0, 0, 0), point3d(100, 100, 100)); 
-	std::cout << "Criando raios aleatórios (" << num_rays << ")...\n";
-	auto rays = makeRays(num_rays, rtree.bounds());
-	
-	int totalBrute = 0, totalTree = 0;
-	int timeBrute = 0, timeTree = 0;
+	//3. Criar função para geração de raios arbitrários.
+	auto rays = benchmark("Criando raios aleatórios (" + std::to_string(num_rays) + ")", 
+						  [&rtree](){ return makeRays(num_rays, rtree.bounds()); });
 
-	//5. Testar queries usando força bruta.
-	std::cout << "Testando query força bruta...\n";
-	for(auto& ray : rays)
-	{
-		//ClockStart
-		auto v1 = queryBrute(ray, t);
-		//totalBrute = ClockEnd		
-		totalBrute += timeBrute;
-	}
+	//4. Testar queries usando força bruta.
+	benchmark("Testando query força bruta", [&t, &rays]() {
+		for(auto& ray : rays)
+			queryBrute(ray, t);
+	});
 
-	totalBrute /= rays.size();
-	std::cout << "Tempo decorrido força bruta: " << totalBrute << "\n";
-
-	//6. Testar queries usando Rtree.
-	std::cout << "Testando query força em RTree...\n";
-	for(auto& ray : rays)
-	{
-		//ClockStart
-		auto v2 = queryTree(ray, rtree);
-		//totalTree = ClockEnd
-		totalTree += timeTree;
-	}
-
-	totalTree /= rays.size();
-	std::cout << "Tempo decorrido RTree: " << totalTree << "\n";
+	//5. Testar queries usando Rtree.
+	benchmark("Testando query em RTree", [&rtree, &rays]() {
+		for(auto& ray : rays)
+			queryTree(ray, rtree);
+	});
 
 	return 0;
 }

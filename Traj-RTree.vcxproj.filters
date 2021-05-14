@@ -22,4 +22,9 @@
       <Filter>Arquivos de Recurso</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="benchmark.h">
+      <Filter>Arquivos de Recurso</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>
