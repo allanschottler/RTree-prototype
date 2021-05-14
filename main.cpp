@@ -3,6 +3,7 @@
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/geometries/box.hpp>
+#include <boost/geometry/geometries/segment.hpp>
 
 #include <boost/geometry/index/rtree.hpp>
 #include <boost/optional.hpp>
@@ -144,7 +145,7 @@ boost::optional<value> queryBrute(ray& r, trajectory& t)
 		auto bb = makeBox(it->second, std::next(it)->second);
 
 		if (bg::intersects(seg, bb))
-			return { bb, it };
+			return boost::make_optional(std::make_pair(bb, it));
 	}
 
 	return boost::none;
@@ -154,7 +155,7 @@ boost::optional<value> queryTree(ray& r, RTree& tree)
 {
 	std::vector<value> result = {};
 	boost::geometry::model::segment<point3d> seg{ r.first, r.second };
-	tree.query(bg::intersects(seg), std::back_inserter(result));
+	tree.query(bgi::intersects(seg), std::back_inserter(result));
 
 	return boost::make_optional(result.empty(), result[0]);
 }
